@@ -15,4 +15,9 @@ The biggest problem besides all that just is missing, is the RiscPC Timer0.
 It need to fire each centisecond. Right now I am using pthreads, for that and
 for video. I have tried several ways without any luck.
 
+
+The main site for RPCEmu where you can find the official sources and many guides.
+
+https://www.marutan.net/rpcemu/index.php
+
 Feel free to improve!
