@@ -19,5 +19,5 @@ for video. I have tried several ways without any luck.
 The main site for RPCEmu where you can find the official sources and many guides.
 
 https://www.marutan.net/rpcemu/index.php
-![Alt text](https://safir.amigaos.se/bildgalleri/users2/18613_rpcemu-720p-morphos.jpg)
+![Alt text](https://safir.amigaos.se/bildgalleri/users2/19502_rpcemu_morphos.png)
 Feel free to improve!
