@@ -886,7 +886,7 @@ hostfs_putbytes(ARMul_State *state)
     ptr++;
   }
 
-  //fwrite(buffer, 1, state->Reg[3], f);
+  fwrite(buffer, 1, state->Reg[3], f);
 }
 
 static void
