@@ -135,7 +135,8 @@ video_update(int yl, int yh)
 	int srcstart = yl*winw*4;
 	struct timespec start3, end3;
 	clock_gettime(CLOCK_REALTIME, &start3);
-	WritePixelArray(rofb+srcstart,0,0,winw*4,win->RPort,50,50+yl,winw,lines,RECTFMT_ARGB);
+	
+	WritePixelArray(rofb+srcstart, 0, 0, winw*4, win->RPort, win->BorderLeft, win->BorderTop+yl, winw, lines, RECTFMT_ARGB);
 
 	clock_gettime(CLOCK_REALTIME, &end3);
 	
@@ -218,7 +219,7 @@ resizedisplay(int x, int y)
 	rofb=(void*)thr.bitmap;
 	winw=x;
 	winh=y;
-	ChangeWindowBox(win,100,100,winw+100,winh+100);
+	ChangeWindowBox(win, win->LeftEdge, win->TopEdge, win->BorderLeft+win->BorderRight+winw, win->BorderTop+win->BorderBottom+winh);
 	
 	resetbuffer();
 }

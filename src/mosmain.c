@@ -191,16 +191,19 @@ int main()
 	int oldcputime=0;
 	
     win = OpenWindowTags(NULL,
-                         WA_Left,100,WA_Top,100,WA_Width,winw+100,WA_Height,winh+100,WA_Title,"RPCEmu for MorphOS",WA_CloseGadget,TRUE,
+						 WA_InnerWidth, winw, WA_InnerHeight, winh, WA_AutoAdjust, TRUE, WA_Title, "RPCEmu for MorphOS", WA_CloseGadget,TRUE,
                          WA_DepthGadget,TRUE,WA_DragBar,TRUE,WA_IDCMP,IDCMP_CLOSEWINDOW|IDCMP_REFRESHWINDOW|IDCMP_RAWKEY|IDCMP_MOUSEMOVE|IDCMP_MOUSEBUTTONS,
-                         WA_SimpleRefresh,TRUE,WA_Activate,TRUE,WA_Flags, WFLG_REPORTMOUSE,TAG_DONE);
+                         WA_SimpleRefresh,FALSE,WA_Activate,TRUE,WA_Flags, WFLG_REPORTMOUSE,TAG_DONE);
+
 	
     winport=win->UserPort;
-	char * vbuf=(char*)malloc(640*480*4);
-	memset(vbuf,1,640*480*4);
+	char * vbuf=(char*)malloc(winw*winh*4);
+	memset(vbuf,1,winw*winh*4);
 	currentval2=time_delay(&currentval,0);
-		t1=currentval2.tv_micro;	
-	WritePixelArray(vbuf,0,0,640*4,win->RPort,50,50,640,480,RECTFMT_ARGB);
+		t1=currentval2.tv_micro;
+			
+	WritePixelArray(vbuf, 0, 0, winw*4, win->RPort, win->BorderLeft, win->BorderTop, winw, winh, RECTFMT_ARGB);
+	
 		currentval2=time_delay(&currentval,0);
 		t2=currentval2.tv_micro;
 	videodelay=t2-t1;	
@@ -334,7 +337,7 @@ int main()
             case IDCMP_MOUSEMOVE:
             {
               //  printf("mousE\n");
-                mouse_mouse_move(imsg->MouseX-50,imsg->MouseY-50);
+                mouse_mouse_move(imsg->MouseX-win->BorderLeft, imsg->MouseY-win->BorderTop);
                 //printf("x: %d y: %d\n",imsg->MouseX,imsg->MouseY);
 
                 break;
