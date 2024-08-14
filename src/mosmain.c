@@ -234,7 +234,7 @@ int main()
     initcodeblocks();
     initpodulerom();
    
-    mem_reset(64,8);
+    mem_reset(256,8);
     
     iomd_reset(IOMDType_IOMD);
    
@@ -310,7 +310,7 @@ int main()
                 {
                     printf("Couldn't signal vidc thread\n");
                 }
-				pthread_join(video_thread3,NULL);
+		//		pthread_join(video_thread3,NULL);
                 pthread_cancel(video_thread2);
 				pthread_cancel(video_thread3);
 				pthread_cancel(video_thread);
@@ -399,6 +399,15 @@ int main()
 
 
     }
+		 iomd_end();
+        	//fdc_image_save(discname[0], 0);
+        	//fdc_image_save(discname[1], 1);
+        	free(vram);
+        	free(ram00);
+        	free(ram01);
+        	//free(rom);
+        	savecmos();
+        	//config_save(&config);
     
 		CloseWindow(win);
 	closevideo();
@@ -412,21 +421,70 @@ vidcthreadrunner3(void *threadid)
 {
 
 	struct timespec tv2,start8, end8,start4,end4;
-	uint64_t delaytime=0;
+	uint64_t delaytime=0,videodelay=0;
 	uint64_t iomdtimer=2000;
 	struct timeval currentval,currentval2,currentval3;
 	tv2.tv_nsec=400000;
 	tv2.tv_sec=0;
     while (working && running1!=0)
     {
+		int exec_count=0;
 		
 		if (!running1)
 			return NULL;
-
-		GetSysTime(&currentval2);
-		execarm(800);
 		
-		drawscr(1);		
+		GetSysTime(&currentval2);
+		for ( exec_count=0;exec_count<1;exec_count++)
+		{
+			execarm(36000);
+
+
+			if (kcallback) {
+			kcallback--;
+			if (kcallback <= 0) {
+				kcallback = 0;
+				keyboard_callback_rpcemu();
+			}
+		}
+		if (mcallback) {
+			mcallback -= 10;
+			if (mcallback <= 0) {
+				mcallback = 0;
+				mouse_ps2_callback();
+			}
+		}
+		if (fdccallback) {
+			fdccallback -= 100;
+			if (fdccallback <= 0) {
+				fdccallback = 0;
+				fdc_callback();
+			}
+		}
+		if (idecallback) {
+			idecallback -= 10;
+			if (idecallback <= 0) {
+				idecallback = 0;
+				callbackide();
+			}
+		}
+		if (motoron) {
+			//disc_poll();
+		}
+	
+	
+
+	if (drawscre > 0) {
+		drawscr(1);
+		drawscre--;
+		if (drawscre > 5) {
+			drawscre = 0;
+		}
+}
+
+
+		
+		}	
+	//drawscr(1);		
 		
 		if (!running1)
 			return NULL;
@@ -441,7 +499,15 @@ vidcthreadrunner3(void *threadid)
 			
 			
 		}
-		
+		GetSysTime(&currentval3);
+		videodelay += (currentval3.tv_micro - currentval2.tv_micro);
+		if (videodelay/100 >= videonext)
+		{
+			drawscre++;
+			videonext+= 1000000000/60;
+
+
+		}
 	
 		if (!running1)
 			return NULL;
