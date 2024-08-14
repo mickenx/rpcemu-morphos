@@ -22,10 +22,9 @@
 #define MEM_H
 
 #include <stdint.h>
-#include <stdio.h>
+
 #include "rpcemu.h"
-#define fatal printf
-#define rpclog printf
+
 extern uint32_t mem_phys_read32(uint32_t addr);
 
 extern uint32_t readmemfl(uint32_t addr);
@@ -73,11 +72,8 @@ static inline uint32_t
 mem_read32(uint32_t addr)
 {
 	if (vraddrl[addr >> 12] & 1) {
-		//printf("memfl\n");
 		return readmemfl(addr);
 	} else {
-		//printf("direct\n");
-	//	return readmemfl(addr);
 		return *((const uint32_t *) (addr + vraddrl[addr >> 12]));
 	}
 }
@@ -99,7 +95,6 @@ mem_read8(uint32_t addr)
 #ifdef _RPCEMU_BIG_ENDIAN
 		return *((const uint8_t *) ((addr ^ 3) + vraddrl[addr >> 12]));
 #else
-	//	return readmemfb(addr);
 		return *((const uint8_t *) (addr + vraddrl[addr >> 12]));
 #endif
 	}
@@ -116,12 +111,10 @@ mem_read8(uint32_t addr)
 static inline void
 mem_write32(uint32_t addr, uint32_t val)
 {
-	//printf("memwrite32 addr 0x%x val 0x%x\n",addr,val);
 	if (vwaddrl[addr >> 12] & 3) {
 		writememfl(addr, val);
 	} else {
 		*((uint32_t *) (addr + vwaddrl[addr >> 12])) = val;
-		//writememfl(addr, val);
 	}
 }
 
@@ -144,8 +137,77 @@ mem_write8(uint32_t addr, uint8_t val)
 #else
 		*((uint8_t *) (addr + vwaddrl[addr >> 12])) = val;
 #endif
-//		writememfb(addr, val);
 	}
+}
+
+/**
+ * Read a 32-bit word from a virtual address with User mode privileges.
+ *
+ * @param addr Virtual address
+ * @return 32-bit word read from given virtual address
+ */
+static inline uint32_t
+mem_user_read32(uint32_t addr)
+{
+	const int prev_memmode = memmode;
+	uint32_t data;
+
+	memmode = 0;
+	data = mem_read32(addr);
+	memmode = prev_memmode;
+
+	return data;
+}
+
+/**
+ * Read a byte from a virtual address with User mode privileges.
+ *
+ * @param addr Virtual address
+ * @return Byte read from given virtual address
+ */
+static inline uint32_t
+mem_user_read8(uint32_t addr)
+{
+	const int prev_memmode = memmode;
+	uint32_t data;
+
+	memmode = 0;
+	data = mem_read8(addr);
+	memmode = prev_memmode;
+
+	return data;
+}
+
+/**
+ * Write a 32-bit word to a virtual address with User mode privileges.
+ *
+ * @param addr Virtual address
+ * @param val  32-bit word to write
+ */
+static inline void
+mem_user_write32(uint32_t addr, uint32_t val)
+{
+	const int prev_memmode = memmode;
+
+	memmode = 0;
+	mem_write32(addr, val);
+	memmode = prev_memmode;
+}
+
+/**
+ * Write a byte to a virtual address with User mode privileges.
+ *
+ * @param addr Virtual address
+ * @param val  Byte to write
+ */
+static inline void
+mem_user_write8(uint32_t addr, uint8_t val)
+{
+	const int prev_memmode = memmode;
+
+	memmode = 0;
+	mem_write8(addr, val);
+	memmode = prev_memmode;
 }
 
 #endif /* MEM_H */

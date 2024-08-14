@@ -274,7 +274,7 @@ void fpaopcode(uint32_t opcode)
 
                                 default:
                                 rpclog("Bad number of registers to load %06X\n",opcode&0x408000);
-                                dumpregs();
+                                //dumpregs();
                                 exit(-1);
                         }
 //                        rpclog("Loaded %08X  %i  %f %f %f %f\n",opcode&0x408000,FD,fparegs[FD],fparegs[(FD+1)&7],fparegs[(FD+2)&7],fparegs[(FD+3)&7]);
@@ -352,7 +352,7 @@ void fpaopcode(uint32_t opcode)
                                 
                                 default:
                                 rpclog("Bad number of registers to store %06X\n",opcode&0x408000);
-                                dumpregs();
+                                //dumpregs();
                                 exit(-1);
                         }
                         if (!(opcode&0x1000000))

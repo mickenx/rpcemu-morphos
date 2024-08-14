@@ -43,7 +43,7 @@
 #include "iomd.h"
 #include "arm.h"
 #include "i8042.h"
-
+//int mousehack=1;
 /* Keyboard Commands */
 #define KBD_CMD_ENABLE		0xf4
 #define KBD_CMD_RESET		0xff
@@ -77,6 +77,9 @@
 #define PS2_CONTROL_TX_EMPTY	0x80
 
 #define PS2_QUEUE_SIZE 256
+
+int kcallback = 0;
+int mcallback = 0;
 
 typedef struct {
 	uint8_t	data[PS2_QUEUE_SIZE];
@@ -327,7 +330,6 @@ keyboard_control_write(uint8_t v)
 static void
 keyboardsend(uint8_t v)
 {
-	//printf("kbd data set: %c  %d\n,",v,v);
 	kbd.data = v;
 	kbd.stat |= PS2_CONTROL_RX_FULL;
 	if (calculateparity(v)) {
@@ -342,68 +344,32 @@ keyboardsend(uint8_t v)
 void
 keyboard_callback_rpcemu(void)
 {
-	//printf("callback keyb\n");
 	PS2Queue *q = &kbd.queue;
-	//printf("callback kbd.quee\n");
+
 	if (kbd.reset == 1) {
-                kbd.reset = 0;
-                kbd.stat = PS2_CONTROL_TX_EMPTY;
-                keyboard_irq_tx_raise();
-
-        } else if (kbd.reset == 2) {
-                kbd.reset = 3;
-                // keyboardsend(KBD_REPLY_ACK);
-                kcallback = 500 * 4;
-
-        } else if (kbd.reset == 3) {
-                kcallback = 0;
-                kbd.reset = 0;
-                keyboardsend(KBD_REPLY_POR);
-
-
-#if 0
-	if (kbd.reset == 1) {
-		printf("kbdreset\n");
-		kbd.reset = 0;
-		kcallback = 0;
-		keyboardsend(KBD_REPLY_ACK);
-		keyboardsend(KBD_REPLY_POR);
-		kbd.stat = PS2_CONTROL_TX_EMPTY;
-		keyboard_irq_tx_raise();
-		return;
 		kbd.reset = 0;
 		kbd.stat |= PS2_CONTROL_TX_EMPTY;
-//		keyboard_irq_tx_raise();
+		keyboard_irq_tx_raise();
 
 	} else if (kbd.reset == 2) {
-		printf("kbdreset2\n");
 		kbd.reset = 3;
-		kcallback = 500 * 4;
-		return;
-		kbd.reset = 3;
-//		keyboardsend(KBD_REPLY_ACK);
+		// keyboardsend(KBD_REPLY_ACK);
 		kcallback = 500 * 4;
 
 	} else if (kbd.reset == 3) {
-		printf("kbdreset3\n");
 		kcallback = 0;
 		kbd.reset = 0;
-		return;
-		kcallback = 0;
-		kbd.reset = 0;
-//		keyboardsend(KBD_REPLY_POR);
-#endif
+		keyboardsend(KBD_REPLY_POR);
+
 	} else switch (kbd.command) {
 	case 1:
 	case KBD_CMD_ENABLE:
-		//printf("kbdenable\n");
 		keyboardsend(KBD_REPLY_ACK);
 		kcallback = 0;
 		kbd.command = 0;
 		break;
 
 	case 0xfe:
-		//printf("kbd 0xfe\n");
 		keyboardsend(ps2_read_data(q));
 		kcallback = 0;
 		if (q->count == 0) {
@@ -437,7 +403,6 @@ keyboard_data_read(void)
 	if (kbd.command == 0xfe) {
 		kcallback = 5 * 4;
 	}
-	//printf("kbd data get %c %d\n",kbd.data,kbd.data);
 	return kbd.data;
 }
 
@@ -643,7 +608,7 @@ mouse_send(uint8_t v)
  * Handle sending queued PS/2 mouse messages to the emulated machine; this is
  * to introduce a slight delay between sent packets.
  *
- * Called from within execarm() once the mcallback variable reaches 0.
+ * Called once the mcallback variable reaches 0.
  */
 void
 mouse_ps2_callback(void)
@@ -689,10 +654,10 @@ mouse_ps2_callback(void)
         else
         {
 		/* For the callback to be sent, there must be some PS/2 data to send */
-	//	assert(msqueue.count > 0);
+		assert(msqueue.count > 0);
 
 		/* Send the next byte of PS/2 data to the host */
-          //      mouse_send(ps2_read_data(&msqueue));
+                mouse_send(ps2_read_data(&msqueue));
         }
 }
 
@@ -728,9 +693,8 @@ mouse_process(void)
 
 
 	/* Update quadrature mouse */
-	iomd.mousex =x ;//+= x;
-	iomd.mousey =480-y ;//-= y; 
-	/* Allegro and RPC Y axis go in opposite directions */
+	iomd.mousex = x;
+	iomd.mousey = 480-y; /* Allegro and RPC Y axis go in opposite directions */
 
         /* Return if not PS/2 mouse */
         if (machine.model != Model_A7000 && machine.model != Model_A7000plus && machine.model != Model_Phoebe) {
@@ -770,6 +734,7 @@ mouse_process(void)
 	{
 		uint8_t tmp;
 
+#if 0
 		if (config.mousetwobutton) {
 			/* To help people with only two buttons on their mouse,
 			   swap the behaviour of middle and right buttons */
@@ -779,7 +744,7 @@ mouse_process(void)
 
 			mouseb = mousel | (mousem << 1) | (mouser << 2);
 		}
-
+#endif
 		tmp = (mouseb & 7) | 8;
 
 		if (x & 0x100) {
@@ -827,11 +792,10 @@ mouse_process(void)
 void
 mouse_mouse_move(int x, int y)
 {
-	//assert(mousehack);
+	assert(mousehack);
 
 	mouse.x = x;
 	mouse.y = y;
-	//printf("mouse x %d y %d\n",mouse.x,mouse.y);
 }
 
 /**
@@ -850,7 +814,7 @@ mouse_mouse_move_relative(int dx, int dy)
 
 	mouse.x = mouse.dx;
 	mouse.y = mouse.dy;
-	printf("mouse x %d y %d\n",mouse.x,mouse.y);
+
 	mouse_process();
 }
 
@@ -863,7 +827,7 @@ void
 mouse_mouse_press(int buttons)
 {
 	mouse.buttons |= buttons;
-	printf("mouse.buttns %d buttons %d\n",mouse.buttons,buttons);
+
 	// Capture mode
 	if(!mousehack) {
 		mouse_process();
@@ -904,7 +868,7 @@ keyboard_key_press(const uint8_t *scan_codes)
 	if (scan_codes == NULL) {
 		return;
 	}
-	printf("keydown\n");
+
 	ps2_queue(&kbd.queue, scan_codes[0]);
 	if (scan_codes[0] == 0xe0) {
 		/* 2-byte scan code */
@@ -932,11 +896,7 @@ keyboard_key_release(const uint8_t *scan_codes)
 	if (scan_codes == NULL) {
 		return;
 	}
-	//ps2_queue(&kbd.queue, 0xf0);
-	//kcallback = 20;
-	//kbd.command = 0xfe;
-	printf("key up\n");
-	//return;
+
 	assert(scan_codes[0] != 0xe1); /* Break key has no release code */
 
 	if (scan_codes[1] == 0) {
@@ -1236,6 +1196,7 @@ mouse_hack_osmouse(void)
 	if (mouse.buttons & 1) { 
 		buttons |= 4;			/* Left button */
 	}
+#if 0
 	if (config.mousetwobutton) {
 		/* To help people with only two buttons on their mouse, swap
 		   the behaviour of middle and right buttons */
@@ -1246,13 +1207,14 @@ mouse_hack_osmouse(void)
 			buttons |= 1;		/* Right button */
 		}
 	} else {
+#endif
 		if (mouse.buttons & 2) {
 			buttons |= 1;		/* Right button */
 		}
 		if (mouse.buttons & 4) {
 			buttons |= 2; 		/* Middle button */
 		}
-	}
+	//}
 	arm.reg[2] = buttons;
 
 	arm.reg[3] = 0; /* R3 = time of button change */

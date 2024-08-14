@@ -72,7 +72,36 @@ void delete_timer(struct timerequest *);
 struct timeval time_delay(struct timeval *, LONG);
 struct timerequest *create_timer(ULONG);
 void wait_for_timer(struct timerequest *, struct timeval *);
+Machine machine;
+const Model_Details models[] = {
+	{ "Risc PC - ARM610",                "RPC610", CPUModel_ARM610,    IOMDType_IOMD,      SuperIOType_FDC37C665GT, I2C_PCF8583 },
+	{ "Risc PC - ARM710",                "RPC710", CPUModel_ARM710,    IOMDType_IOMD,      SuperIOType_FDC37C665GT, I2C_PCF8583 },
+	{ "Risc PC - StrongARM",             "RPCSA",  CPUModel_SA110,     IOMDType_IOMD,      SuperIOType_FDC37C665GT, I2C_PCF8583 },
+	{ "A7000",                           "A7000",  CPUModel_ARM7500,   IOMDType_ARM7500,   SuperIOType_FDC37C665GT, I2C_PCF8583 },
+	{ "A7000+ (experimental)",           "A7000+", CPUModel_ARM7500FE, IOMDType_ARM7500FE, SuperIOType_FDC37C665GT, I2C_PCF8583 },
+	{ "Risc PC - ARM810 (experimental)", "RPC810", CPUModel_ARM810,    IOMDType_IOMD,      SuperIOType_FDC37C665GT, I2C_PCF8583 },
+	{ "Phoebe (RPC2)",                   "Phoebe", CPUModel_SA110,     IOMDType_IOMD2,     SuperIOType_FDC37C672,   I2C_PCF8583 | I2C_SPD_DIMM0 }
+};
 
+Config config = {
+	64,			/* mem_size */
+	2,			/* vram_size */
+	NULL,			/* username */
+	NULL,			/* ipaddress */
+	NULL,			/* macaddress */
+	NULL,			/* bridgename */
+	0,			/* refresh */
+	0,			/* soundenabled */
+	1,			/* cdromenabled */
+	0,			/* cdromtype  -- Only used on Windows build */
+	"",			/* isoname */
+	1,			/* mousehackon */
+	0,			/* mousetwobutton */
+	NetworkType_Off,	/* network_type */
+	0,			/* cpu_idle */
+	1,			/* show_fullscreen_message */
+	NULL,			/* network_capture */
+};
 
 static void* 
 vidcthreadrunner3(void *threadid);
@@ -80,19 +109,21 @@ static void *
 vidcthreadrunner2(void *threadid);
 extern struct Library     *TimerBase;
 struct Library	*ExecBase;
-int drawscrc = 0;
+int drawscre = 0;
 clock_t timerclock;
 int running1,running2;
 int stop1,stop2;
 struct timerequest *tr;
 BOOL working;
-
+static int cycles;
 struct MsgPort *winport;
-volatile ULONG videonext;
+volatile ULONG videonext= 1000000000 /60;
     /* get a pointer to an initialized timer request block */
     
-
-#if 1
+void rpcemu_idle(void)
+{
+}
+#if 0
 void
 rpcemu_idle(void)
 {
@@ -167,14 +198,14 @@ int main()
     clock_t endclock;
 		long timercount;
 	 struct timeval currentval,currentval2;
-	ULONG extracpu=0;
-    working=TRUE;
+	uint64_t extracpu=0;
+	working=TRUE;
 	struct Task * task1;
 	struct Task * task2;
 	struct timerequest tr3;
 	//tr=&tr3;
 	tr=NULL;
-	ULONG cycles=0;
+	uint64_t cycles=0;
 	stop1=0;
 	stop2=0;
 	int drawscrc=6;
@@ -183,7 +214,7 @@ int main()
 	volatile uint64_t iomdnext=(uint64_t)2000000;
 	volatile uint64_t globaltime=(uint64_t)0;
 	BOOL eventdone=FALSE;
-	
+ 	cycles = 0;
 	
     printf("hello\n");
     winw=640;
@@ -227,14 +258,14 @@ int main()
     arm_init();
     cmos_init();
  
-    resetarm(CPUModel_SA110); 
+    arm_reset(CPUModel_SA110); 
 
     keyboard_reset();
     
     initcodeblocks();
     initpodulerom();
    
-    mem_reset(256,8);
+    mem_reset(64,8);
     
     iomd_reset(IOMDType_IOMD);
    
@@ -268,13 +299,13 @@ int main()
 
 	
 	
-    dumpregs();
+    //dumpregs();
 	currentval2=time_delay(&currentval,0);
 		//start = (clock()*1000);// / CLOCKS_PER_SEC) / 1000;
 		//DateStamp(&dstamp);
 		t1=currentval2.tv_micro;	
-		execarm(20000);
-		drawscr(1);
+		arm_exec();
+		drawscr();
 		running2=1;
 		currentval2=time_delay(&currentval,0);
 		//start = (clock()*1000);// / CLOCKS_PER_SEC) / 1000;
@@ -282,7 +313,9 @@ int main()
 		t2=currentval2.tv_micro;
 	normalcpu=t2-t1;
 	//iomdnext=0;	
-	
+	arm_dump();
+	arm_exec();
+	arm_dump();
 	struct timespec start3, end3;
 	
     globaltime=0x0;
@@ -310,10 +343,10 @@ int main()
                 {
                     printf("Couldn't signal vidc thread\n");
                 }
-		//		pthread_join(video_thread3,NULL);
+				//pthread_join(video_thread3,NULL);
                 pthread_cancel(video_thread2);
 				pthread_cancel(video_thread3);
-				pthread_cancel(video_thread);
+				//pthread_cancel(video_thread);
 				
                 working = FALSE;
 				running1=0;
@@ -405,12 +438,13 @@ int main()
         	free(vram);
         	free(ram00);
         	free(ram01);
-        	//free(rom);
-        	savecmos();
+        	free(rom);
+        	//savecmos();
         	//config_save(&config);
-    
+    		
 		CloseWindow(win);
-	closevideo();
+		closevideo();
+		printf("exit\n");
 		exit(0);
     
 
@@ -426,20 +460,21 @@ vidcthreadrunner3(void *threadid)
 	struct timeval currentval,currentval2,currentval3;
 	tv2.tv_nsec=400000;
 	tv2.tv_sec=0;
+	
     while (working && running1!=0)
     {
-		int exec_count=0;
+	cycles += 20000;
+	int cycles2=cycles;
 		
 		if (!running1)
 			return NULL;
-		
-		GetSysTime(&currentval2);
-		for ( exec_count=0;exec_count<1;exec_count++)
-		{
-			execarm(36000);
-
-
-			if (kcallback) {
+	GetSysTime(&currentval2);
+	//drawscr();
+	while(cycles > 0 ) {
+		cycles -= arm_exec();
+	
+#if 1
+	if (kcallback) {
 			kcallback--;
 			if (kcallback <= 0) {
 				kcallback = 0;
@@ -470,11 +505,11 @@ vidcthreadrunner3(void *threadid)
 		if (motoron) {
 			//disc_poll();
 		}
-	
+#endif	
 	
 
 	if (drawscre > 0) {
-		drawscr(1);
+		drawscr();
 		drawscre--;
 		if (drawscre > 5) {
 			drawscre = 0;
@@ -482,38 +517,47 @@ vidcthreadrunner3(void *threadid)
 }
 
 
-		
-		}	
-	//drawscr(1);		
-		
-		if (!running1)
-			return NULL;
-	
+
+}
 		GetSysTime(&currentval);
 		if ((currentval.tv_micro - currentval2.tv_micro)<18446744073UL)
 		delaytime+=(currentval.tv_micro - currentval2.tv_micro);
 		if (delaytime>=iomdtimer)
 		{
+			//drawscr();
 			gentimerirq();
 			iomdtimer+=2000;
 			
 			
-		}
+		}	
 		GetSysTime(&currentval3);
 		videodelay += (currentval3.tv_micro - currentval2.tv_micro);
 		if (videodelay/100 >= videonext)
 		{
 			drawscre++;
-			videonext+= 1000000000/60;
+			videonext+= 1000000000 /60;
 
 
 		}
+		//execarm(600);
+		//drawscr();
+		
+	
+		//drawscr();
+		//arm_dump();
+		//arm_exec();
+		
+		if (!running1)
+			return NULL;
+	
+	
+				//cycles=cycles2;
 	
 		if (!running1)
 			return NULL;
 		
 	
-	
+	//}
 
 	}
 	return NULL;
@@ -564,16 +608,17 @@ vidcthreadrunner2(void *threadid)
 {
 
 
-    if (pthread_mutex_lock(&video_mutex))
-    {
-        printf("Cannot lock mutex\n");
-		return NULL;
-		//volatile ddd=0;
-    }
+    
     while (working)
 		
     {
-		
+	if (pthread_mutex_lock(&video_mutex))
+    	{
+        	printf("Cannot lock mutex\n");
+		return NULL;
+		//volatile ddd=0;
+    	}
+	//printf("vid thread1\n");	
         struct timeval currentval;
         currentval.tv_secs = 0;
         currentval.tv_micro = 200000/50;
@@ -586,13 +631,14 @@ vidcthreadrunner2(void *threadid)
            }
         
         //if (!quited) {
-       
+    	//printf("vidcthread\n");   
         vidcthread();
+	pthread_mutex_unlock(&video_mutex);
         
 
 
     }
-    pthread_mutex_unlock(&video_mutex);
+    
     return NULL;
 
 

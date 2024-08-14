@@ -307,6 +307,57 @@ ide_next_sector(void)
 		}
 	}
 }
+#if 0
+static void
+loadhd(int d, const char *filename)
+{
+	char pathname[512];
+
+	snprintf(pathname, sizeof(pathname), "%s%s", rpcemu_get_datadir(), filename);
+
+	if (ide.hdfile[d] == NULL) {
+		/* Try to open existing hard disk image */
+		ide.hdfile[d] = fopen64(pathname, "rb+");
+		if (ide.hdfile[d] == NULL) {
+			/* Failed to open existing hard disk image */
+			if (errno == ENOENT) {
+				/* Failed because it does not exist,
+				   so try to create new file */
+				ide.hdfile[d] = fopen64(pathname, "wb+");
+				if (ide.hdfile[d] == NULL) {
+					fatal("Cannot create file '%s': %s",
+					      pathname, strerror(errno));
+				}
+			} else {
+				/* Failed for another reason */
+				fatal("Cannot open file '%s': %s",
+				      pathname, strerror(errno));
+			}
+		}
+	}
+
+        fseek(ide.hdfile[d], 0xfc1, SEEK_SET);
+        ide.spt[d] = getc(ide.hdfile[d]);
+        ide.hpc[d] = getc(ide.hdfile[d]);
+        ide.skip512[d] = 1;
+//        rpclog("First check - spt %i hpc %i\n",ide.spt[0],ide.hpc[0]);
+        if (!ide.spt[d] || !ide.hpc[d])
+        {
+                fseek(ide.hdfile[d], 0xdc1, SEEK_SET);
+                ide.spt[d] = getc(ide.hdfile[d]);
+                ide.hpc[d] = getc(ide.hdfile[d]);
+//                rpclog("Second check - spt %i hpc %i\n",ide.spt[0],ide.hpc[0]);
+                ide.skip512[d] = 0;
+                if (!ide.spt[d] || !ide.hpc[d])
+                {
+                        ide.spt[d]=63;
+                        ide.hpc[d]=16;
+                        ide.skip512[d] = 1;
+//        rpclog("Final check - spt %i hpc %i\n",ide.spt[0],ide.hpc[0]);
+                }
+        }
+}
+#endif
 
 static void
 loadhd(int d, const char *filename)
@@ -372,15 +423,14 @@ void resetide(void)
 
         ide.atastat = READY_STAT;
         idecallback = 0;
-	//loadhd(0, "hd4.hdf");  RISCOS 3 or 4 , 5.x doesn't work with IDE
+	loadhd(0, "hd4.hdf");
 	if (!config.cdromenabled) {
-//		loadhd(1, "hd5.hdf");
+		loadhd(1, "hd5.hdf");
 	}
 }
 
 void writeidew(uint16_t val)
 {
-	//printf("writeide\n");
 #ifdef _RPCEMU_BIG_ENDIAN
 		val=(val>>8)|(val<<8);
 #endif
@@ -418,7 +468,6 @@ void writeidew(uint16_t val)
 
 void writeide(uint16_t addr, uint8_t val)
 {
-	//printf("writeide\n");
         uint8_t *idebufferb = (uint8_t *) ide.buffer;
 
         switch (addr)
@@ -653,7 +702,7 @@ void callbackide(void)
                 ide.head=0;
                 ide.cylinder=0;
                 ide.reset = 0;
-                rpclog("Reset callback\n");
+//                rpclog("Reset callback\n");
                 return;
         }
         switch (ide.command)
@@ -680,7 +729,6 @@ void callbackide(void)
                 return;
 
         case WIN_READ:
-		//printf("WINREAD\n");
                 if (IDE_DRIVE_IS_CDROM(ide)) {
                         goto abort_cmd;
                 }
@@ -696,9 +744,6 @@ void callbackide(void)
                 return;
 
         case WIN_WRITE:
-		//printf("WIN_WRITE\n");
-		
-		//return;
                 if (IDE_DRIVE_IS_CDROM(ide)) {
                         goto abort_cmd;
                 }
@@ -779,7 +824,7 @@ void callbackide(void)
                 return;
 
         case WIN_PACKETCMD: /* ATAPI Packet */
-                rpclog("Packet callback! %i\n",ide.packetstatus);
+//                rpclog("Packet callback! %i\n",ide.packetstatus);
                 if (!ide.packetstatus)
                 {
                         ide.pos=0;
@@ -1075,7 +1120,7 @@ static void atapicommand(void)
                         rpclog("Packet data :\n");
                         for (c=0;c<12;c++)
                             rpclog("%02X\n",idebufferb[c]);
-                        dumpregs();
+                        arm_dump();
                         exit(-1);
                 }
                 pos=0;

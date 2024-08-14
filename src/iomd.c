@@ -178,7 +178,6 @@
 
 struct iomd iomd;
 
-int kcallback = 0, mcallback = 0;
 uint32_t cinit = 0; /**< Cursor DMA Init */
 
 /**
@@ -207,22 +206,23 @@ static IOMDType iomd_type; /**< The current type of IOMD we're emulating */
 static int sndon = 0;
 static int flyback=0;
 
-void updateirqs(void)
+void
+updateirqs(void)
 {
-        if ((iomd.irqa.status & iomd.irqa.mask) ||
-            (iomd.irqb.status & iomd.irqb.mask) ||
-            (iomd.irqd.status & iomd.irqd.mask) ||
-            (iomd.irqdma.status & iomd.irqdma.mask))
-        {
-                armirq |= 1;
-        } else {
-                armirq &= ~1u;
-        }
-        if (iomd.fiq.status & iomd.fiq.mask) {
-                armirq |= 2;
-        } else {
-                armirq &= ~2u;
-        }
+	if ((iomd.irqa.status & iomd.irqa.mask) ||
+	    (iomd.irqb.status & iomd.irqb.mask) ||
+	    (iomd.irqd.status & iomd.irqd.mask) ||
+	    (iomd.irqdma.status & iomd.irqdma.mask))
+	{
+		arm.event |= 1;
+	} else {
+		arm.event &= ~1u;
+	}
+	if (iomd.fiq.status & iomd.fiq.mask) {
+		arm.event |= 2;
+	} else {
+		arm.event &= ~2u;
+	}
 }
 
 /**
@@ -292,13 +292,11 @@ iomd_write(uint32_t addr, uint32_t val)
                 return;
 
         case IOMD_0x004_KBDDAT: /* Keyboard data */
-		//printf("IOMD_0x004_KBDDAT\n");
 		if (iomd_type != IOMDType_IOMD2) {
 			keyboard_data_write(val);
 		}
                 return;
         case IOMD_0x008_KBDCR: /* Keyboard control */
-		//printf("IOMD_0x008_KBDCR %d\n",val & 8);
 		if (iomd_type != IOMDType_IOMD2) {
 			keyboard_control_write(val & 8);
 		}
@@ -487,18 +485,20 @@ iomd_write(uint32_t addr, uint32_t val)
         case IOMD_0x184_SD0ENDA: /* Sound DMA 0 EndA */
         case IOMD_0x188_SD0CURB: /* Sound DMA 0 CurB */
         case IOMD_0x18C_SD0ENDB: /* Sound DMA 0 EndB */
-                // rpclog("Write sound DMA %08X %02X\n",addr,val);
-              //  iomd.sndstat &= IOMD_DMA_STATUS_BUFFER;
-               // iomd.irqdma.status &= ~IOMD_IRQDMA_SOUND_0;
-                //updateirqs();
-                //soundaddr[(addr>>2)&3]=val;
+     		#if 0
+	           // rpclog("Write sound DMA %08X %02X\n",addr,val);
+                iomd.sndstat &= IOMD_DMA_STATUS_BUFFER;
+                iomd.irqdma.status &= ~IOMD_IRQDMA_SOUND_0;
+                updateirqs();
+                soundaddr[(addr>>2)&3]=val;
                 // rpclog("Buffer A start %08X len %08X\nBuffer B start %08X len %08X\n",
                 // soundaddr[0],(soundaddr[1]-soundaddr[0])&0xFFC,soundaddr[2],
                 // (soundaddr[3]-soundaddr[2])&0xFFC);
+		#endif
                 return;
         case IOMD_0x190_SD0CR: /* Sound DMA 0 Control */
-// rpclog("Write sound CTRL %08X %02X\n",addr,val);
-#if 0
+                // rpclog("Write sound CTRL %08X %02X\n",addr,val);
+		#if 0
                 if (val&0x80)
                 {
                         iomd.sndstat = IOMD_DMA_STATUS_INTERRUPT |
@@ -508,7 +508,7 @@ iomd_write(uint32_t addr, uint32_t val)
                         updateirqs();
                 }
                 sndon=val&0x20;
-#endif
+		#endif
                 return;
 
         case IOMD_0x1C0_CURSCUR: /* Cursor DMA Current */
@@ -540,7 +540,6 @@ iomd_write(uint32_t addr, uint32_t val)
 		resetbuffer();
 		return;
 	case IOMD_0x1E0_VIDCR: /* Video DMA Control */
-		//printf("vidcr set %d\n",val);
 		iomd.vidcr = val;
 		resetbuffer();
 		return;
@@ -620,11 +619,7 @@ iomd_read(uint32_t addr)
 			return 0;
 		}
         case IOMD_0x008_KBDCR: /* Keyboard control */
-		//printf("IOMD_0x008_KBDCR\n");
 		if (iomd_type != IOMDType_IOMD2) {
-			//printf("kbd status: 0x%x\n",keyboard_status_read());
-			//if (keyboard_status_read()==0xac)
-			//	return 0x88;
 			return keyboard_status_read();
 		} else {
 			return 0;
@@ -939,8 +934,6 @@ iomd_reset(IOMDType type)
 		iomd.refcr = 0;      /* DRAM refresh */
 	}
 
-	kcallback = 0;
-	mcallback = 0;
 	cinit = 0;
 	sndon = 0;
 	flyback = 0;
@@ -955,19 +948,18 @@ iomd_end(void)
 {
 }
 
+/**
+ * Signal a change in the Flyback signal from VIDC
+ *
+ * @param flyback_new New value of Flyback signal
+ */
 void
-iomd_vsync(int vsync)
+iomd_flyback(int flyback_new)
 {
-        if (vsync)
-        {
-//                rpclog("Vsync high\n");
-                iomd.irqa.status |= IOMD_IRQA_FLYBACK;
-                updateirqs();
-                flyback=1;
-        }
-        else
-        {
-//                rpclog("Vsync low\n");
-                flyback=0;
-        }
+	flyback = flyback_new;
+
+	if (flyback) {
+		iomd.irqa.status |= IOMD_IRQA_FLYBACK;
+		updateirqs();
+	}
 }
