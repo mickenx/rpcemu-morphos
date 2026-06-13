@@ -434,9 +434,9 @@ vidcthreadrunner3(void *threadid)
 			return NULL;
 		
 		GetSysTime(&currentval2);
-		for ( exec_count=0;exec_count<1;exec_count++)
+		for ( exec_count=0;exec_count<600;exec_count++)
 		{
-			execarm(36000);
+			execarm(1);
 
 
 			if (kcallback) {

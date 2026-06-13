@@ -234,6 +234,17 @@ void updateirqs(void)
  */
 void gentimerirq(void)
 {
+/*
+	         iomd.irqa.status |= IOMD_IRQA_TIMER_0;
+                updateirqs();
+        
+
+        
+        
+         
+                iomd.irqa.status |= IOMD_IRQA_TIMER_1;
+                updateirqs();
+        return;*/
         iomd.t0.counter -= 4000; /* 4000 * 500Hz = 2MHz (the IO clock speed) */
         while (iomd.t0.counter < 0 && iomd.t0.in_latch)
         {

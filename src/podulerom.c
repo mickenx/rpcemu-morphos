@@ -143,7 +143,7 @@ initpodulerom(void)
 	if (dir != NULL) {
 		printf("romdir not null\n");
 		while ((d = readdir(dir)) != NULL && file < MAXROMS) {
-			printf("roms %s\n",d->d_name);
+			//printf("roms %s\n",d->d_name);
 			const char *ext = rpcemu_file_get_extension(d->d_name);
 			char filepath[512];
 			struct stat buf;
