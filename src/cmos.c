@@ -101,16 +101,16 @@ typedef struct {
 static void
 cmos_update_settings(void)
 {
-//	time_t now = time(NULL);
+	time_t now = time(NULL);
 //	const struct tm *t = gmtime(&now);
-//	const struct tm *tloc = localtime(&now);
+	const struct tm *tloc = localtime(&now);
 
 	/* The year should be stored too, otherwise RISC OS refuses to
 	 * read any time from the CMOS/RTC chip!
 	 */
 	/* The standard C time functionality subtracts 1900 from the year */
-	cmosram[0xc0] = 19 ; //(t->tm_year + 1900) % 100;
-	cmosram[0xc1] = 74 ; //(t->tm_year + 1900) / 100;
+	cmosram[0xc0] = (tloc->tm_year + 1900) % 100;
+	cmosram[0xc1] = (tloc->tm_year + 1900) / 100;
 
 	/* Set the Daylight Savings Time flag */
 #if 0

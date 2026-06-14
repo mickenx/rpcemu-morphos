@@ -72,8 +72,9 @@ void delete_timer(struct timerequest *);
 struct timeval time_delay(struct timeval *, LONG);
 struct timerequest *create_timer(ULONG);
 void wait_for_timer(struct timerequest *, struct timeval *);
-
-
+static uint64_t delaytime=0;
+static uint64_t video_timer_next=0;
+static uint64_t videodelay=0;
 static void* 
 vidcthreadrunner3(void *threadid);
 static void *
@@ -86,12 +87,34 @@ int running1,running2;
 int stop1,stop2;
 struct timerequest *tr;
 BOOL working;
-
+uint64_t iomdtimer=2000;
 struct MsgPort *winport;
 volatile ULONG videonext;
     /* get a pointer to an initialized timer request block */
     
+void rpcemu_idle_process_events()
+{
+	const int32_t iomd_timer_interval = 2000000; // 2000000 ns = 2 ms (500 Hz)
 
+	// Handle qt events and messages
+	//QCoreApplication::processEvents();
+
+	//const qint64 elapsed = elapsed_timer.nsecsElapsed();
+
+	// If we have passed the time the IOMD timer event should occur, trigger it
+	if (delaytime >= iomdtimer) {
+		//iomd_timer_count.fetchAndAddRelease(1);
+		gentimerirq();
+		delaytime += (uint64_t) 2000; //iomd_timer_interval;
+	}
+
+	// If we have passed the time the Video timer event should occur, trigger it
+	if (videodelay >= video_timer_next) {
+		//video_timer_count.fetchAndAddRelease(1);
+		//vblupdate();
+		videodelay += (uint64_t) 1000/60;
+	}
+}
 #if 1
 void
 rpcemu_idle(void)
@@ -155,7 +178,7 @@ rpcemu_idle(void)
 				if (drawscre > 5)
 					drawscre = 0;
 			}
-			//rpcemu_idle_process_events();
+			rpcemu_idle_process_events();
 		}
 	}
 }
@@ -294,9 +317,10 @@ int main()
 		
 #if 1		
         WaitPort(win->UserPort);
-
+	
         while ((imsg = (struct IntuiMessage *)GetMsg(win->UserPort)) && working == TRUE)
         {
+		//printf("imsg class 0x%x\n",imsg->Class);
 			running1=1;
 			eventdone=TRUE;
             switch (imsg->Class)
@@ -421,8 +445,8 @@ vidcthreadrunner3(void *threadid)
 {
 
 	struct timespec tv2,start8, end8,start4,end4;
-	uint64_t delaytime=0,videodelay=0;
-	uint64_t iomdtimer=2000;
+	//uint64_t videodelay=0;
+	//uint64_t iomdtimer=2000;
 	struct timeval currentval,currentval2,currentval3;
 	tv2.tv_nsec=400000;
 	tv2.tv_sec=0;
@@ -431,14 +455,17 @@ vidcthreadrunner3(void *threadid)
 		int exec_count=0;
 		
 		if (!running1)
+		{
+			printf("running10\n");
 			return NULL;
+		}
 		
 		GetSysTime(&currentval2);
-		for ( exec_count=0;exec_count<600;exec_count++)
-		{
-			execarm(1);
-
-
+		//for ( exec_count=0;exec_count<1;exec_count++)
+		//{
+			execarm(800);
+			//drawscr(1);
+#if 0
 			if (kcallback) {
 			kcallback--;
 			if (kcallback <= 0) {
@@ -446,6 +473,7 @@ vidcthreadrunner3(void *threadid)
 				keyboard_callback_rpcemu();
 			}
 		}
+
 		if (mcallback) {
 			mcallback -= 10;
 			if (mcallback <= 0) {
@@ -471,7 +499,7 @@ vidcthreadrunner3(void *threadid)
 			//disc_poll();
 		}
 	
-	
+#endif
 
 	if (drawscre > 0) {
 		drawscr(1);
@@ -479,7 +507,7 @@ vidcthreadrunner3(void *threadid)
 		if (drawscre > 5) {
 			drawscre = 0;
 		}
-}
+//}
 
 
 		
@@ -487,8 +515,10 @@ vidcthreadrunner3(void *threadid)
 	//drawscr(1);		
 		
 		if (!running1)
+		{
+			printf("running1a\n");
 			return NULL;
-	
+		}
 		GetSysTime(&currentval);
 		if ((currentval.tv_micro - currentval2.tv_micro)<18446744073UL)
 		delaytime+=(currentval.tv_micro - currentval2.tv_micro);
@@ -510,12 +540,16 @@ vidcthreadrunner3(void *threadid)
 		}
 	
 		if (!running1)
+		{
+			printf("running1\n");
 			return NULL;
+		}
 		
 	
 	
 
 	}
+	printf("exit thread\n");
 	return NULL;
 }
 

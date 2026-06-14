@@ -150,7 +150,7 @@ initvideo(void)
 	memset(&thr, 0, sizeof(thr));
 	memset(dirtybuffer1, 0xff, sizeof(dirtybuffer1));
 	memset(dirtybuffer2, 0xff, sizeof(dirtybuffer2));
-	thr.bitmap = malloc(1204*768*4);
+	thr.bitmap = malloc(1024*768*4);
 	
 	rofb =(void*) thr.bitmap;
 	memset(rofb,1,1024*768*4);
@@ -214,7 +214,7 @@ resizedisplay(int x, int y)
 	printf("resize: x %d y %d\n",x,y);
 	current_sizex = x; //1024;
 	current_sizey = y ;//768;
-	thr.bitmap = malloc((size_t)(x*y* 4));
+	thr.bitmap = realloc(thr.bitmap,(size_t)(x*y* 4));
 
 	rofb=(void*)thr.bitmap;
 	winw=x;
