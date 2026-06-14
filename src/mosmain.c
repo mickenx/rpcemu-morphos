@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <pthread.h>
 //#include "arm.h"
-#include <time.h>
+//#include <time.h>
 //#include "rpcemu.h"
 #include "romload.h"
 #include "mem.h"
@@ -35,6 +35,7 @@
 #include <devices/timer.h>
 #include <proto/dos.h>
 #include <proto/exec.h>
+#include <proto/layers.h>
 
 #include <exec/io.h>
 
@@ -81,6 +82,7 @@ static void *
 vidcthreadrunner2(void *threadid);
 extern struct Library     *TimerBase;
 struct Library	*ExecBase;
+struct Library *LayersBase = NULL;
 int drawscrc = 0;
 clock_t timerclock;
 int running1,running2;
@@ -279,6 +281,29 @@ static POINTER_STATE get_pointer_state (const struct Window *w, int mousex, int 
 		return new_state;
 }
 
+void Cleanup_Libs()
+{
+	if (LayersBase)
+	{
+		CloseLibrary (LayersBase);
+		LayersBase = NULL;
+	}
+}
+
+BOOL Init_Libs()
+{
+   LayersBase = OpenLibrary ("layers.library", 0L);
+	if (!LayersBase)
+	{
+		printf ("No layers.library\n");
+		return 0;
+	}
+	else
+	{
+      return 1;
+	}
+}
+
 int main()
 {
 	clock_t start;
@@ -303,7 +328,8 @@ int main()
 	BOOL eventdone=FALSE;
 	int mx, my;
 	
-	
+   if (Init_Libs())
+	{
     printf("hello\n");
     winw=640;
     winh=480;
@@ -460,6 +486,7 @@ int main()
             case IDCMP_MOUSEMOVE:
             {
               //  printf("mousE\n");
+
 				   POINTER_STATE new_state = get_pointer_state (win, mx, my);
 					if (new_state != pointer_state)
 					{
@@ -469,6 +496,7 @@ int main()
 						else
                      show_pointer (win);
                 }
+
                 mouse_mouse_move(imsg->MouseX-win->BorderLeft, imsg->MouseY-win->BorderTop);
                 //printf("x: %d y: %d\n",imsg->MouseX,imsg->MouseY);
 
@@ -543,7 +571,9 @@ int main()
 			free_pointer ();
     
 		CloseWindow(win);
-	closevideo();
+	   closevideo();
+		Cleanup_Libs();
+	}
 		exit(0);
     
 

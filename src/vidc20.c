@@ -40,6 +40,7 @@
 #include "sound.h"
 #include "mem.h"
 #include "iomd.h"
+#include "time.h"
 #define _RPCEMU_BIG_ENDIAN 1
 void * rofb;
 static int current_sizex = -1; /**< Width of the video mode, -1 on invalid */
