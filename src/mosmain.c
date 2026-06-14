@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <pthread.h>
 //#include "arm.h"
-#include <time.h>
+//#include <time.h>
 //#include "rpcemu.h"
 #include "romload.h"
 #include "mem.h"
@@ -35,6 +35,7 @@
 #include <devices/timer.h>
 #include <proto/dos.h>
 #include <proto/exec.h>
+#include <proto/layers.h>
 
 #include <exec/io.h>
 
@@ -69,9 +70,16 @@ static pthread_t video_thread,video_thread2,video_thread3;
 struct timerequest  *bd_TimerRequest;
 
 void delete_timer(struct timerequest *);
-struct timeval time_delay(struct timeval *, LONG);
 struct timerequest *create_timer(ULONG);
-void wait_for_timer(struct timerequest *, struct timeval *);
+
+#ifdef DEVICES_TIMER_H_TIMEVAL_CAMELCASE
+ struct TimeVal time_delay(struct TimeVal *, LONG);
+ void wait_for_timer(struct timerequest *, struct TimeVal *);
+#else
+ struct timeval time_delay(struct timeval *, LONG);
+ void wait_for_timer(struct timerequest *, struct timeval *);
+#endif
+
 static uint64_t delaytime=0;
 static uint64_t video_timer_next=0;
 static uint64_t videodelay=0;
@@ -81,6 +89,7 @@ static void *
 vidcthreadrunner2(void *threadid);
 extern struct Library     *TimerBase;
 struct Library	*ExecBase;
+struct Library *LayersBase = NULL;
 int drawscrc = 0;
 clock_t timerclock;
 int running1,running2;
@@ -184,13 +193,136 @@ rpcemu_idle(void)
 }
 #endif
 
+// Some code borrowed from E-UAE =)
+
+static APTR blank_pointer;
+
+/*
+ * Initializes a pointer object containing a blank pointer image.
+ * Used for hiding the mouse pointer
+ */
+static void init_pointer (void)
+{
+	static struct BitMap bitmap;
+	static UWORD	 row[2] = {0, 0};
+
+	InitBitMap (&bitmap, 2, 16, 1);
+	bitmap.Planes[0] = (PLANEPTR) &row[0];
+	bitmap.Planes[1] = (PLANEPTR) &row[1];
+
+	blank_pointer = NewObject (NULL, POINTERCLASS,
+										POINTERA_BitMap,	(ULONG)&bitmap,
+										POINTERA_WordWidth,	1,
+									   TAG_DONE);
+
+	if (!blank_pointer)
+		printf ("Warning: Unable to allocate blank mouse pointer.\n");
+}
+
+/*
+ * Free up blank pointer object
+ */
+static void free_pointer (void)
+{
+	if (blank_pointer) {
+		DisposeObject (blank_pointer);
+		blank_pointer = NULL;
+	}
+}
+
+/*
+ * Hide mouse pointer for window
+ */
+static void hide_pointer (struct Window *w)
+{
+	SetWindowPointer (w, WA_Pointer, (ULONG)blank_pointer, TAG_DONE);
+}
+
+/*
+ * Restore default mouse pointer for window
+ */
+static void show_pointer (struct Window *w)
+{
+	SetWindowPointer (w, WA_Pointer, 0, TAG_DONE);
+}
+
+typedef enum {
+	DONT_KNOW = -1,
+	INSIDE_WINDOW,
+	OUTSIDE_WINDOW
+} POINTER_STATE;
+
+static POINTER_STATE pointer_state;
+
+static POINTER_STATE get_pointer_state (const struct Window *w, int mousex, int mousey)
+{
+	POINTER_STATE new_state = OUTSIDE_WINDOW;
+
+	/*
+	 * Is pointer within the bounds of the inner window?
+	 */
+	if ((mousex >= w->BorderLeft)
+		&& (mousey >= w->BorderTop)
+		&& (mousex < (w->Width - w->BorderRight))
+		&& (mousey < (w->Height - w->BorderBottom))) {
+		/*
+		 * Yes. Now check whetehr the window is obscured by
+		 * another window at the pointer position
+		 */
+		struct Screen *scr = w->WScreen;
+	struct Layer  *layer;
+
+	/* Find which layer the pointer is in */
+	LockLayerInfo (&scr->LayerInfo);
+	layer = WhichLayer (&scr->LayerInfo, scr->MouseX, scr->MouseY);
+	UnlockLayerInfo (&scr->LayerInfo);
+
+	/* Is this layer our window's layer? */
+	if (layer == w->WLayer) {
+		/*
+		 * Yes. Therefore, pointer is inside the window.
+		 */
+		new_state = INSIDE_WINDOW;
+	}
+		}
+		return new_state;
+}
+
+void Cleanup_Libs()
+{
+	if (LayersBase)
+	{
+		CloseLibrary (LayersBase);
+		LayersBase = NULL;
+	}
+}
+
+BOOL Init_Libs()
+{
+   LayersBase = OpenLibrary ("layers.library", 0L);
+	if (!LayersBase)
+	{
+		printf ("No layers.library\n");
+		return 0;
+	}
+	else
+	{
+      return 1;
+	}
+}
+
 int main()
 {
 	clock_t start;
     clock_t endclock;
 		long timercount;
+#ifdef DEVICES_TIMER_H_TIMEVAL_CAMELCASE
+	 struct TimeVal currentval,currentval2;
+#else
 	 struct timeval currentval,currentval2;
-	ULONG extracpu=0;
+#endif
+
+	 ULONG extracpu=0;
     working=TRUE;
 	struct Task * task1;
 	struct Task * task2;
@@ -206,8 +338,10 @@ int main()
 	volatile uint64_t iomdnext=(uint64_t)2000000;
 	volatile uint64_t globaltime=(uint64_t)0;
 	BOOL eventdone=FALSE;
+	int mx, my;
 	
-	
+   if (Init_Libs())
+	{
     printf("hello\n");
     winw=640;
     winh=480;
@@ -235,7 +369,7 @@ int main()
 	
 	running1=1;
 	
-  
+    init_pointer ();
     fdc_init();
     initvideo();
 
@@ -323,6 +457,9 @@ int main()
 		//printf("imsg class 0x%x\n",imsg->Class);
 			running1=1;
 			eventdone=TRUE;
+			mx = imsg->IDCMPWindow->MouseX;
+			my = imsg->IDCMPWindow->MouseY;
+
             switch (imsg->Class)
             {
             case IDCMP_CLOSEWINDOW:
@@ -361,6 +498,17 @@ int main()
             case IDCMP_MOUSEMOVE:
             {
               //  printf("mousE\n");
+
+				   POINTER_STATE new_state = get_pointer_state (win, mx, my);
+					if (new_state != pointer_state)
+					{
+					   pointer_state = new_state;
+						if (pointer_state == INSIDE_WINDOW)
+						   hide_pointer (win);
+						else
+                     show_pointer (win);
+                }
+
                 mouse_mouse_move(imsg->MouseX-win->BorderLeft, imsg->MouseY-win->BorderTop);
                 //printf("x: %d y: %d\n",imsg->MouseX,imsg->MouseY);
 
@@ -432,9 +580,12 @@ int main()
         	//free(rom);
         	savecmos();
         	//config_save(&config);
+			free_pointer ();
     
 		CloseWindow(win);
-	closevideo();
+	   closevideo();
+		Cleanup_Libs();
+	}
 		exit(0);
     
 
@@ -447,7 +598,12 @@ vidcthreadrunner3(void *threadid)
 	struct timespec tv2,start8, end8,start4,end4;
 	//uint64_t videodelay=0;
 	//uint64_t iomdtimer=2000;
+#ifdef DEVICES_TIMER_H_TIMEVAL_CAMELCASE
+	struct TimeVal currentval,currentval2,currentval3;
+#else
 	struct timeval currentval,currentval2,currentval3;
+#endif
+
 	tv2.tv_nsec=400000;
 	tv2.tv_sec=0;
     while (working && running1!=0)
@@ -607,8 +763,11 @@ vidcthreadrunner2(void *threadid)
     while (working)
 		
     {
-		
-        struct timeval currentval;
+#ifdef DEVICES_TIMER_H_TIMEVAL_CAMELCASE
+        struct TimeVal currentval;
+#else
+		  struct timeval currentval;
+#endif
         currentval.tv_secs = 0;
         currentval.tv_micro = 200000/50;
       
@@ -677,10 +836,18 @@ struct timerequest *create_timer(ULONG unit)
     return (TimerIO);
 }
 
+#ifdef DEVICES_TIMER_H_TIMEVAL_CAMELCASE
+struct TimeVal time_delay(struct TimeVal *tv, LONG unit)
+#else
 struct timeval time_delay(struct timeval *tv, LONG unit)
+#endif
 {
-    struct timerequest tr2;
+	struct timerequest tr2;
+#ifdef DEVICES_TIMER_H_TIMEVAL_CAMELCASE
+	struct TimeVal tv2;
+#else
 	struct timeval tv2;
+#endif
 	//printf("time_delay\n");
     /* any nonzero return says timedelay routine didn't work. */
  /*   if (tr == NULL) {
@@ -697,7 +864,11 @@ struct timeval time_delay(struct timeval *tv, LONG unit)
     return (tv2);
 }
 
+#ifdef DEVICES_TIMER_H_TIMEVAL_CAMELCASE
+void wait_for_timer(struct timerequest *tr, struct TimeVal *tv)
+#else
 void wait_for_timer(struct timerequest *tr, struct timeval *tv)
+#endif
 {
 
     tr->tr_node.io_Command = TR_GETSYSTIME; /* add a new timer request */
