@@ -70,9 +70,9 @@ static pthread_t video_thread,video_thread2,video_thread3;
 struct timerequest  *bd_TimerRequest;
 
 void delete_timer(struct timerequest *);
-struct timeval time_delay(struct timeval *, LONG);
+struct TimeVal time_delay(struct TimeVal *, LONG);
 struct timerequest *create_timer(ULONG);
-void wait_for_timer(struct timerequest *, struct timeval *);
+void wait_for_timer(struct timerequest *, struct TimeVal *);
 static uint64_t delaytime=0;
 static uint64_t video_timer_next=0;
 static uint64_t videodelay=0;
@@ -309,7 +309,7 @@ int main()
 	clock_t start;
     clock_t endclock;
 		long timercount;
-	 struct timeval currentval,currentval2;
+	 struct TimeVal currentval,currentval2;
 	ULONG extracpu=0;
     working=TRUE;
 	struct Task * task1;
@@ -586,7 +586,7 @@ vidcthreadrunner3(void *threadid)
 	struct timespec tv2,start8, end8,start4,end4;
 	//uint64_t videodelay=0;
 	//uint64_t iomdtimer=2000;
-	struct timeval currentval,currentval2,currentval3;
+	struct TimeVal currentval,currentval2,currentval3;
 	tv2.tv_nsec=400000;
 	tv2.tv_sec=0;
     while (working && running1!=0)
@@ -747,7 +747,7 @@ vidcthreadrunner2(void *threadid)
 		
     {
 		
-        struct timeval currentval;
+        struct TimeVal currentval;
         currentval.tv_secs = 0;
         currentval.tv_micro = 200000/50;
       
@@ -816,10 +816,10 @@ struct timerequest *create_timer(ULONG unit)
     return (TimerIO);
 }
 
-struct timeval time_delay(struct timeval *tv, LONG unit)
+struct TimeVal time_delay(struct TimeVal *tv, LONG unit)
 {
     struct timerequest tr2;
-	struct timeval tv2;
+	struct TimeVal tv2;
 	//printf("time_delay\n");
     /* any nonzero return says timedelay routine didn't work. */
  /*   if (tr == NULL) {
@@ -836,7 +836,7 @@ struct timeval time_delay(struct timeval *tv, LONG unit)
     return (tv2);
 }
 
-void wait_for_timer(struct timerequest *tr, struct timeval *tv)
+void wait_for_timer(struct timerequest *tr, struct TimeVal *tv)
 {
 
     tr->tr_node.io_Command = TR_GETSYSTIME; /* add a new timer request */
