@@ -70,9 +70,16 @@ static pthread_t video_thread,video_thread2,video_thread3;
 struct timerequest  *bd_TimerRequest;
 
 void delete_timer(struct timerequest *);
-struct TimeVal time_delay(struct TimeVal *, LONG);
 struct timerequest *create_timer(ULONG);
-void wait_for_timer(struct timerequest *, struct TimeVal *);
+
+#ifdef DEVICES_TIMER_H_TIMEVAL_CAMELCASE
+ struct TimeVal time_delay(struct TimeVal *, LONG);
+ void wait_for_timer(struct timerequest *, struct TimeVal *);
+#else
+ struct timeval time_delay(struct timeval *, LONG);
+ void wait_for_timer(struct timerequest *, struct timeval *);
+#endif
+
 static uint64_t delaytime=0;
 static uint64_t video_timer_next=0;
 static uint64_t videodelay=0;
@@ -309,8 +316,13 @@ int main()
 	clock_t start;
     clock_t endclock;
 		long timercount;
+#ifdef DEVICES_TIMER_H_TIMEVAL_CAMELCASE
 	 struct TimeVal currentval,currentval2;
-	ULONG extracpu=0;
+#else
+	 struct timeval currentval,currentval2;
+#endif
+
+	 ULONG extracpu=0;
     working=TRUE;
 	struct Task * task1;
 	struct Task * task2;
@@ -586,7 +598,12 @@ vidcthreadrunner3(void *threadid)
 	struct timespec tv2,start8, end8,start4,end4;
 	//uint64_t videodelay=0;
 	//uint64_t iomdtimer=2000;
+#ifdef DEVICES_TIMER_H_TIMEVAL_CAMELCASE
 	struct TimeVal currentval,currentval2,currentval3;
+#else
+	struct timeval currentval,currentval2,currentval3;
+#endif
+
 	tv2.tv_nsec=400000;
 	tv2.tv_sec=0;
     while (working && running1!=0)
@@ -746,8 +763,11 @@ vidcthreadrunner2(void *threadid)
     while (working)
 		
     {
-		
+#ifdef DEVICES_TIMER_H_TIMEVAL_CAMELCASE
         struct TimeVal currentval;
+#else
+		  struct timeval currentval;
+#endif
         currentval.tv_secs = 0;
         currentval.tv_micro = 200000/50;
       
@@ -816,10 +836,18 @@ struct timerequest *create_timer(ULONG unit)
     return (TimerIO);
 }
 
+#ifdef DEVICES_TIMER_H_TIMEVAL_CAMELCASE
 struct TimeVal time_delay(struct TimeVal *tv, LONG unit)
+#else
+struct timeval time_delay(struct timeval *tv, LONG unit)
+#endif
 {
-    struct timerequest tr2;
+	struct timerequest tr2;
+#ifdef DEVICES_TIMER_H_TIMEVAL_CAMELCASE
 	struct TimeVal tv2;
+#else
+	struct timeval tv2;
+#endif
 	//printf("time_delay\n");
     /* any nonzero return says timedelay routine didn't work. */
  /*   if (tr == NULL) {
@@ -836,7 +864,11 @@ struct TimeVal time_delay(struct TimeVal *tv, LONG unit)
     return (tv2);
 }
 
+#ifdef DEVICES_TIMER_H_TIMEVAL_CAMELCASE
 void wait_for_timer(struct timerequest *tr, struct TimeVal *tv)
+#else
+void wait_for_timer(struct timerequest *tr, struct timeval *tv)
+#endif
 {
 
     tr->tr_node.io_Command = TR_GETSYSTIME; /* add a new timer request */
