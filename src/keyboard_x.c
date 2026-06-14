@@ -96,8 +96,8 @@ static const KeyMapInfo key_map[] = {
 	{ 0x55, { 0x0b } },		// F6
 	{ 0x56, { 0x83 } },		// F7
 	{ 0x57, { 0x0a } },		// F8
-	{ 0x58, { 0x01 } },		// F9
-//	{ 68, { 0x09 } },		F10
+//	{ 0x58, { 0x01 } },		 F9
+	{ 0x6e, { 0xe1, 0x14, 0x77, 0xe1, 0xf0, 0x14, 0xf0, 0x77 } },		//F10
 #if 0
 	{ 69, { 0x77 } },		// Keypad Num Lock
 	{ 70, { 0x7e } },		// Scroll Lock
@@ -118,7 +118,7 @@ static const KeyMapInfo key_map[] = {
 	{ 87, { 0x78 } },		// F11
 #endif
 	
-	{ 0x59, { 0x07 } },		// F12
+	{ 0x6f, { 0x07 } },		// F12
 #if 0
 	{ 96, { 0xe0, 0x5a } },	// Keypad Enter
 	{ 97, { 0xe0, 0x14 } },	// Right Ctrl

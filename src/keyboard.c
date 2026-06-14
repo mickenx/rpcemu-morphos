@@ -937,6 +937,8 @@ keyboard_key_release(const uint8_t *scan_codes)
 	//kbd.command = 0xfe;
 	printf("key up\n");
 	//return;
+	if (scan_codes[0]==0xe1)
+		return;
 	assert(scan_codes[0] != 0xe1); /* Break key has no release code */
 
 	if (scan_codes[1] == 0) {
