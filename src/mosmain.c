@@ -184,6 +184,101 @@ rpcemu_idle(void)
 }
 #endif
 
+// Some code borrowed from E-UAE =)
+
+static APTR blank_pointer;
+
+/*
+ * Initializes a pointer object containing a blank pointer image.
+ * Used for hiding the mouse pointer
+ */
+static void init_pointer (void)
+{
+	static struct BitMap bitmap;
+	static UWORD	 row[2] = {0, 0};
+
+	InitBitMap (&bitmap, 2, 16, 1);
+	bitmap.Planes[0] = (PLANEPTR) &row[0];
+	bitmap.Planes[1] = (PLANEPTR) &row[1];
+
+	blank_pointer = NewObject (NULL, POINTERCLASS,
+										POINTERA_BitMap,	(ULONG)&bitmap,
+										POINTERA_WordWidth,	1,
+									   TAG_DONE);
+
+	if (!blank_pointer)
+		printf ("Warning: Unable to allocate blank mouse pointer.\n");
+}
+
+/*
+ * Free up blank pointer object
+ */
+static void free_pointer (void)
+{
+	if (blank_pointer) {
+		DisposeObject (blank_pointer);
+		blank_pointer = NULL;
+	}
+}
+
+/*
+ * Hide mouse pointer for window
+ */
+static void hide_pointer (struct Window *w)
+{
+	SetWindowPointer (w, WA_Pointer, (ULONG)blank_pointer, TAG_DONE);
+}
+
+/*
+ * Restore default mouse pointer for window
+ */
+static void show_pointer (struct Window *w)
+{
+	SetWindowPointer (w, WA_Pointer, 0, TAG_DONE);
+}
+
+typedef enum {
+	DONT_KNOW = -1,
+	INSIDE_WINDOW,
+	OUTSIDE_WINDOW
+} POINTER_STATE;
+
+static POINTER_STATE pointer_state;
+
+static POINTER_STATE get_pointer_state (const struct Window *w, int mousex, int mousey)
+{
+	POINTER_STATE new_state = OUTSIDE_WINDOW;
+
+	/*
+	 * Is pointer within the bounds of the inner window?
+	 */
+	if ((mousex >= w->BorderLeft)
+		&& (mousey >= w->BorderTop)
+		&& (mousex < (w->Width - w->BorderRight))
+		&& (mousey < (w->Height - w->BorderBottom))) {
+		/*
+		 * Yes. Now check whetehr the window is obscured by
+		 * another window at the pointer position
+		 */
+		struct Screen *scr = w->WScreen;
+	struct Layer  *layer;
+
+	/* Find which layer the pointer is in */
+	LockLayerInfo (&scr->LayerInfo);
+	layer = WhichLayer (&scr->LayerInfo, scr->MouseX, scr->MouseY);
+	UnlockLayerInfo (&scr->LayerInfo);
+
+	/* Is this layer our window's layer? */
+	if (layer == w->WLayer) {
+		/*
+		 * Yes. Therefore, pointer is inside the window.
+		 */
+		new_state = INSIDE_WINDOW;
+	}
+		}
+		return new_state;
+}
+
 int main()
 {
 	clock_t start;
@@ -206,6 +301,7 @@ int main()
 	volatile uint64_t iomdnext=(uint64_t)2000000;
 	volatile uint64_t globaltime=(uint64_t)0;
 	BOOL eventdone=FALSE;
+	int mx, my;
 	
 	
     printf("hello\n");
@@ -235,7 +331,7 @@ int main()
 	
 	running1=1;
 	
-  
+    init_pointer ();
     fdc_init();
     initvideo();
 
@@ -323,6 +419,9 @@ int main()
 		//printf("imsg class 0x%x\n",imsg->Class);
 			running1=1;
 			eventdone=TRUE;
+			mx = imsg->IDCMPWindow->MouseX;
+			my = imsg->IDCMPWindow->MouseY;
+
             switch (imsg->Class)
             {
             case IDCMP_CLOSEWINDOW:
@@ -361,6 +460,15 @@ int main()
             case IDCMP_MOUSEMOVE:
             {
               //  printf("mousE\n");
+				   POINTER_STATE new_state = get_pointer_state (win, mx, my);
+					if (new_state != pointer_state)
+					{
+					   pointer_state = new_state;
+						if (pointer_state == INSIDE_WINDOW)
+						   hide_pointer (win);
+						else
+                     show_pointer (win);
+                }
                 mouse_mouse_move(imsg->MouseX-win->BorderLeft, imsg->MouseY-win->BorderTop);
                 //printf("x: %d y: %d\n",imsg->MouseX,imsg->MouseY);
 
@@ -432,6 +540,7 @@ int main()
         	//free(rom);
         	savecmos();
         	//config_save(&config);
+			free_pointer ();
     
 		CloseWindow(win);
 	closevideo();
