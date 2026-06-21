@@ -1,3 +1,4 @@
+
 #include <stdio.h>
 #include <pthread.h>
 //#include "arm.h"
@@ -36,7 +37,16 @@
 #include <proto/dos.h>
 #include <proto/exec.h>
 #include <proto/layers.h>
-
+#include <proto/alib.h>
+#include <proto/exec.h>
+#include <proto/dos.h>
+#include <proto/icon.h>
+#include <proto/graphics.h>
+#include <proto/intuition.h>
+#include <proto/gadtools.h>
+#include <proto/utility.h>
+#include <proto/asl.h>
+#include <proto/muimaster.h>
 #include <exec/io.h>
 
 #include <clib/debug_protos.h>
@@ -58,6 +68,24 @@
 
 #include "arm.h"
 
+#define REG(x)
+
+#ifndef DISPATCHER
+#define DISPATCHER(Name) \
+static ULONG Name##_Dispatcher(void); \
+struct EmulLibEntry GATE ##Name##_Dispatcher = { TRAP_LIB, 0, (void (*)(void)) Name##_Dispatcher }; \
+static ULONG Name##_Dispatcher(void) { struct IClass *cl=(struct IClass*)REG_A0; Msg msg=(Msg)REG_A1; Object *obj=(Object*)REG_A2;
+#define DISPATCHER_REF(Name) &GATE##Name##_Dispatcher
+#define DISPATCHER_END }
+#endif
+
+#if defined __MAXON__ || defined __GNUC__
+	#define ASM
+	#define SAVEDS
+	#else
+	#define ASM    __asm
+	#define SAVEDS __saveds
+#endif 
 
 struct BitMap *bm;
 static pthread_t time_thread;
@@ -68,7 +96,7 @@ static pthread_mutex_t video_mutex2 = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t timer_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t video_thread,video_thread2,video_thread3;
 struct timerequest  *bd_TimerRequest;
-
+	int mx, my;
 void delete_timer(struct timerequest *);
 struct timerequest *create_timer(ULONG);
 
@@ -99,6 +127,327 @@ BOOL working;
 uint64_t iomdtimer=2000;
 struct MsgPort *winport;
 volatile ULONG videonext;
+
+typedef enum {
+	DONT_KNOW = -1,
+	INSIDE_WINDOW,
+	OUTSIDE_WINDOW
+} POINTER_STATE;
+
+struct Data {
+	int x;
+	int y;
+};
+
+	APTR app;
+// Some code borrowed from E-UAE (Develin) =)
+
+static APTR blank_pointer;
+
+/*
+ * Initializes a pointer object containing a blank pointer image.
+ * Used for hiding the mouse pointer
+ */
+static void init_pointer (void)
+{
+	static struct BitMap bitmap;
+	static UWORD	 row[2] = {0, 0};
+
+	InitBitMap (&bitmap, 2, 16, 1);
+	bitmap.Planes[0] = (PLANEPTR) &row[0];
+	bitmap.Planes[1] = (PLANEPTR) &row[1];
+
+	blank_pointer = NewObject (NULL, POINTERCLASS,
+										POINTERA_BitMap,	(ULONG)&bitmap,
+										POINTERA_WordWidth,	1,
+									   TAG_DONE);
+
+	if (!blank_pointer)
+		printf ("Warning: Unable to allocate blank mouse pointer.\n");
+}
+
+/*
+ * Free up blank pointer object
+ */
+static void free_pointer (void)
+{
+	if (blank_pointer) {
+		DisposeObject (blank_pointer);
+		blank_pointer = NULL;
+	}
+}
+
+/*
+ * Hide mouse pointer for window
+ */
+static void hide_pointer (struct Window *w)
+{
+	SetWindowPointer (w, WA_Pointer, (ULONG)blank_pointer, TAG_DONE);
+}
+
+/*
+ * Restore default mouse pointer for window
+ */
+static void show_pointer (struct Window *w)
+{
+	SetWindowPointer (w, WA_Pointer, 0, TAG_DONE);
+}
+
+static POINTER_STATE pointer_state;
+
+static POINTER_STATE get_pointer_state (const struct Window *w, int mousex, int mousey)
+{
+	POINTER_STATE new_state = OUTSIDE_WINDOW;
+
+	/*
+	 * Is pointer within the bounds of the inner window?
+	 */
+	if ((mousex >= w->BorderLeft)
+		&& (mousey >= w->BorderTop)
+		&& (mousex < (w->Width - w->BorderRight))
+		&& (mousey < (w->Height - w->BorderBottom))) {
+		/*
+		 * Yes. Now check whetehr the window is obscured by
+		 * another window at the pointer position
+		 */
+		struct Screen *scr = w->WScreen;
+	struct Layer  *layer;
+
+	/* Find which layer the pointer is in */
+	LockLayerInfo (&scr->LayerInfo);
+	layer = WhichLayer (&scr->LayerInfo, scr->MouseX, scr->MouseY);
+	UnlockLayerInfo (&scr->LayerInfo);
+
+	/* Is this layer our window's layer? */
+	if (layer == w->WLayer) {
+		/*
+		 * Yes. Therefore, pointer is inside the window.
+		 */
+		new_state = INSIDE_WINDOW;
+	}
+		}
+		return new_state;
+}
+
+void Cleanup_Libs()
+{
+	if (LayersBase)
+	{
+		CloseLibrary (LayersBase);
+		LayersBase = NULL;
+	}
+}
+
+BOOL Init_Libs()
+{
+   LayersBase = OpenLibrary ("layers.library", 0L);
+	if (!LayersBase)
+	{
+		printf ("No layers.library\n");
+		return 0;
+	}
+	else
+	{
+      return 1;
+	}
+}
+
+
+/***************************************************************************/
+/* Here is the beginning of our new class...                               */
+/***************************************************************************/
+
+/*
+** This is the instance data for our custom class.
+*/
+
+
+/*
+** AskMinMax method will be called before the window is opened
+** and before layout takes place. We need to tell MUI the
+** minimum, maximum and default size of our object.
+*/
+
+SAVEDS ULONG mAskMinMax(struct IClass *cl,Object *obj,struct MUIP_AskMinMax *msg)
+{
+	/*
+	** let our superclass first fill in what it thinks about sizes.
+	** this will e.g. add the size of frame and inner spacing.
+	*/
+
+	DoSuperMethodA(cl,obj,msg);
+
+	/*
+	** now add the values specific to our object. note that we
+	** indeed need to *add* these values, not just set them!
+	*/
+
+	msg->MinMaxInfo->MinWidth  += 100;
+	msg->MinMaxInfo->DefWidth  += 800;
+	msg->MinMaxInfo->MaxWidth  += 1920;
+
+	msg->MinMaxInfo->MinHeight += 40;
+	msg->MinMaxInfo->DefHeight += 600;
+	msg->MinMaxInfo->MaxHeight += 1080;
+
+	return(0);
+}
+
+
+/*
+** Draw method is called whenever MUI feels we should render
+** our object. This usually happens after layout is finished
+** or when we need to refresh in a simplerefresh window.
+** Note: You may only render within the rectangle
+**       _mleft(obj), _mtop(obj), _mwidth(obj), _mheight(obj).
+*/
+
+SAVEDS ULONG mDraw(struct IClass *cl,Object *obj,struct MUIP_Draw *msg)
+{
+	struct Data *data = INST_DATA(cl,obj);
+
+	/*
+	** let our superclass draw itself first, area class would
+	** e.g. draw the frame and clear the whole region. What
+	** it does exactly depends on msg->flags.
+	**
+	** Note: You *must* call the super method prior to do
+	** anything else, otherwise msg->flags will not be set
+	** properly !
+	*/
+
+	DoSuperMethodA(cl,obj,msg);
+
+	/*
+	** if MADF_DRAWOBJECT isn't set, we shouldn't draw anything.
+	** MUI just wanted to update the frame or something like that.
+	*/
+
+	return(0);
+}
+
+
+SAVEDS ULONG mSetup(struct IClass *cl,Object *obj,Msg msg)
+{
+	if (!(DoSuperMethodA(cl,obj,msg)))
+		return(FALSE);
+
+	MUI_RequestIDCMP(obj,IDCMP_MOUSEBUTTONS|IDCMP_RAWKEY|IDCMP_MOUSEMOVE);
+
+	return(TRUE);
+}
+
+
+SAVEDS ULONG mCleanup(struct IClass *cl,Object *obj,Msg msg)
+{
+	MUI_RejectIDCMP(obj,IDCMP_MOUSEBUTTONS|IDCMP_RAWKEY|IDCMP_MOUSEMOVE);
+	return(DoSuperMethodA(cl,obj,msg));
+}
+
+
+SAVEDS ULONG mHandleInput(struct IClass *cl,Object *obj,struct MUIP_HandleInput *msg)
+{
+	#define _between(a,x,b) ((x)>=(a) && (x)<=(b))
+	#define _isinobject(x,y) (_between(_mleft(obj),(x),_mright(obj)) && _between(_mtop(obj),(y),_mbottom(obj)))
+	struct IntuiMessage * imsg;
+	struct Data *data = INST_DATA(cl,obj);
+
+	if (msg->imsg)
+	{
+	imsg=msg->imsg;
+		running1=1;
+//			eventdone=TRUE;
+			mx = imsg->IDCMPWindow->MouseX;
+			my = imsg->IDCMPWindow->MouseY;
+		switch (msg->imsg->Class)
+		{
+       case IDCMP_RAWKEY:
+            {
+                printf("key: 0x%x\n",imsg->Code);
+                if (imsg->Code & 0x80)
+                {
+                    int ttt = imsg->Code&~(0x80);
+                    keyboard_key_release(keyboard_map_key(ttt));
+                }
+                else
+                {
+                    keyboard_key_press(keyboard_map_key(imsg->Code));
+                }
+                
+                break;
+            }
+            case IDCMP_MOUSEMOVE:
+            {
+              //  printf("mousE\n");
+/*
+				   POINTER_STATE new_state = get_pointer_state (win, mx, my);
+					if (new_state != pointer_state)
+					{
+					   pointer_state = new_state;
+						if (pointer_state == INSIDE_WINDOW)
+						   hide_pointer (win);
+						else
+                     show_pointer (win);
+                }
+*/
+                mouse_mouse_move(imsg->MouseX-_mleft(MyObj)/*win->BorderLeft*/, imsg->MouseY-_mtop(MyObj)/*win->BorderTop*/);
+                //printf("x: %d y: %d\n",imsg->MouseX,imsg->MouseY);
+
+                break;
+            }
+            case IDCMP_MOUSEBUTTONS:
+                switch (imsg->Code)
+                {
+                case SELECTDOWN:
+                    mouse_mouse_press(1);
+                    break;
+                case SELECTUP:
+                    mouse_mouse_release(1);
+                    break;
+				case MIDDLEDOWN:
+                    mouse_mouse_press(4);
+                    break;
+                case MIDDLEUP:
+                    mouse_mouse_release(4);
+                    break;
+                default:
+                    break;
+                }
+
+            default:
+                break;
+            }
+
+            ReplyMsg((struct Message *)imsg);
+
+            imsg=NULL;
+
+}
+	return(DoSuperMethodA(cl,obj,msg));
+}
+
+
+/*
+** Here comes the dispatcher for our custom class. 
+** Unknown/unused methods are passed to the superclass immediately.
+*/
+
+DISPATCHER(MyClass)
+{
+	switch (msg->MethodID)
+	{
+		case MUIM_AskMinMax  : return(mAskMinMax  (cl,obj,(APTR)msg));
+		case MUIM_Draw       : return(mDraw       (cl,obj,(APTR)msg));
+		case MUIM_HandleInput: return(mHandleInput(cl,obj,(APTR)msg));
+		case MUIM_Setup      : return(mSetup      (cl,obj,(APTR)msg));
+		case MUIM_Cleanup    : return(mCleanup    (cl,obj,(APTR)msg));
+	}
+
+	return(DoSuperMethodA(cl,obj,msg));
+}
+DISPATCHER_END
+
+
     /* get a pointer to an initialized timer request block */
     
 void rpcemu_idle_process_events()
@@ -171,11 +520,12 @@ rpcemu_idle(void)
 #ifdef RPCEMU_WIN
 			Sleep(1);
 #else
-			struct timespec tm;
+		/*	struct timespec tm;
 
 			tm.tv_sec = 0;
 			tm.tv_nsec = 1000000;
 			nanosleep(&tm, NULL);
+*/
 #endif
 		}
 		/* Run other periodic actions */
@@ -193,123 +543,6 @@ rpcemu_idle(void)
 }
 #endif
 
-// Some code borrowed from E-UAE (Develin) =)
-
-static APTR blank_pointer;
-
-/*
- * Initializes a pointer object containing a blank pointer image.
- * Used for hiding the mouse pointer
- */
-static void init_pointer (void)
-{
-	static struct BitMap bitmap;
-	static UWORD	 row[2] = {0, 0};
-
-	InitBitMap (&bitmap, 2, 16, 1);
-	bitmap.Planes[0] = (PLANEPTR) &row[0];
-	bitmap.Planes[1] = (PLANEPTR) &row[1];
-
-	blank_pointer = NewObject (NULL, POINTERCLASS,
-										POINTERA_BitMap,	(ULONG)&bitmap,
-										POINTERA_WordWidth,	1,
-									   TAG_DONE);
-
-	if (!blank_pointer)
-		printf ("Warning: Unable to allocate blank mouse pointer.\n");
-}
-
-/*
- * Free up blank pointer object
- */
-static void free_pointer (void)
-{
-	if (blank_pointer) {
-		DisposeObject (blank_pointer);
-		blank_pointer = NULL;
-	}
-}
-
-/*
- * Hide mouse pointer for window
- */
-static void hide_pointer (struct Window *w)
-{
-	SetWindowPointer (w, WA_Pointer, (ULONG)blank_pointer, TAG_DONE);
-}
-
-/*
- * Restore default mouse pointer for window
- */
-static void show_pointer (struct Window *w)
-{
-	SetWindowPointer (w, WA_Pointer, 0, TAG_DONE);
-}
-
-typedef enum {
-	DONT_KNOW = -1,
-	INSIDE_WINDOW,
-	OUTSIDE_WINDOW
-} POINTER_STATE;
-
-static POINTER_STATE pointer_state;
-
-static POINTER_STATE get_pointer_state (const struct Window *w, int mousex, int mousey)
-{
-	POINTER_STATE new_state = OUTSIDE_WINDOW;
-
-	/*
-	 * Is pointer within the bounds of the inner window?
-	 */
-	if ((mousex >= w->BorderLeft)
-		&& (mousey >= w->BorderTop)
-		&& (mousex < (w->Width - w->BorderRight))
-		&& (mousey < (w->Height - w->BorderBottom))) {
-		/*
-		 * Yes. Now check whetehr the window is obscured by
-		 * another window at the pointer position
-		 */
-		struct Screen *scr = w->WScreen;
-	struct Layer  *layer;
-
-	/* Find which layer the pointer is in */
-	LockLayerInfo (&scr->LayerInfo);
-	layer = WhichLayer (&scr->LayerInfo, scr->MouseX, scr->MouseY);
-	UnlockLayerInfo (&scr->LayerInfo);
-
-	/* Is this layer our window's layer? */
-	if (layer == w->WLayer) {
-		/*
-		 * Yes. Therefore, pointer is inside the window.
-		 */
-		new_state = INSIDE_WINDOW;
-	}
-		}
-		return new_state;
-}
-
-void Cleanup_Libs()
-{
-	if (LayersBase)
-	{
-		CloseLibrary (LayersBase);
-		LayersBase = NULL;
-	}
-}
-
-BOOL Init_Libs()
-{
-   LayersBase = OpenLibrary ("layers.library", 0L);
-	if (!LayersBase)
-	{
-		printf ("No layers.library\n");
-		return 0;
-	}
-	else
-	{
-      return 1;
-	}
-}
 
 int main()
 {
@@ -338,28 +571,86 @@ int main()
 	volatile uint64_t iomdnext=(uint64_t)2000000;
 	volatile uint64_t globaltime=(uint64_t)0;
 	BOOL eventdone=FALSE;
-	int mx, my;
+	APTR  button;
 	
+	//APTR app,window;
+	struct MUI_CustomClass *mcc;
+
+	//init();
+
+	/* Create the new custom class with a call to MUI_CreateCustomClass(). */
+	/* Caution: This function returns not a struct IClass, but a           */
+	/* struct MUI_CustomClass which contains a struct IClass to be         */
+	/* used with NewObject() calls.                                        */
+	/* Note well: MUI creates the dispatcher hook for you, you may         */
+	/* *not* use its h_Data field! If you need custom data, use the        */
+	/* cl_UserData of the IClass structure!                                */
+
+	if (!(mcc = MUI_CreateCustomClass(NULL,MUIC_Area,NULL,sizeof(struct Data),DISPATCHER_REF(MyClass))))
+		printf("Could not create custom class.\n");
+
+	app = ApplicationObject,
+		MUIA_Application_Title      , "RPCEmu",
+		//MUIA_Application_Version    , "$VER: Class3 20.164 (04.04.03)",
+		//MUIA_Application_Copyright  , "© 1993 Stefan Stuntz",
+		//MUIA_Application_Author     , "Stefan Stuntz",
+		//MUIA_Application_Description, "Demonstrate the use of custom classes.",
+		MUIA_Application_Base       , "RPCEMU",
+
+		SubWindow, window = WindowObject,
+			MUIA_Window_Title, "RPCEmu for MorphOS",
+			MUIA_Window_ID   , MAKE_ID('R','P','C','E'),
+			
+			WindowContents, VGroup,
+
+				
+				Child,VSpace(2),
+				Child, HGroup,
+				MUIA_Weight,0,
+				Child, button=SimpleButton("\33cReset your RiscPC ! "),
+				End,
+				Child, MyObj = NewObject(mcc->mcc_Class,NULL,
+					TextFrame,
+					TAG_DONE),
+
+				End,
+				/*Child, VSpace(0),
+				Child, HGroup,*/
+				
+		
+
+			End,
+		End;
+
+
+	set(button,MUIA_Text_SetVMax,FALSE);
+	//set(window,MUIA_Window_ActiveObject,button);
+	
+	set(window,MUIA_Window_DefaultObject, MyObj);
+	DoMethod(window,MUIM_Notify,MUIA_Window_CloseRequest,TRUE,
+		app,2,MUIM_Application_ReturnID,MUIV_Application_ReturnID_Quit);
+	set(window,MUIA_Window_Open,TRUE);
+
    if (Init_Libs())
 	{
     printf("hello\n");
     winw=640;
     winh=480;
 	int oldcputime=0;
-	
-    win = OpenWindowTags(NULL,
+	get(window,MUIA_Window_Window,win);
+    /*win = OpenWindowTags(NULL,
 						 WA_InnerWidth, winw, WA_InnerHeight, winh, WA_AutoAdjust, TRUE, WA_Title, "RPCEmu for MorphOS", WA_CloseGadget,TRUE,
                          WA_DepthGadget,TRUE,WA_DragBar,TRUE,WA_IDCMP,IDCMP_CLOSEWINDOW|IDCMP_REFRESHWINDOW|IDCMP_RAWKEY|IDCMP_MOUSEMOVE|IDCMP_MOUSEBUTTONS,
                          WA_SimpleRefresh,FALSE,WA_Activate,TRUE,WA_Flags, WFLG_REPORTMOUSE,TAG_DONE);
 
-	
+	*/
     winport=win->UserPort;
 	char * vbuf=(char*)malloc(winw*winh*4);
 	memset(vbuf,1,winw*winh*4);
 	currentval2=time_delay(&currentval,0);
 		t1=currentval2.tv_micro;
 			
-	WritePixelArray(vbuf, 0, 0, winw*4, win->RPort, win->BorderLeft, win->BorderTop, winw, winh, RECTFMT_ARGB);
+	WritePixelArray(vbuf, 0, 0, winw*4, _rp(MyObj)/*win->RPort*/, win->BorderLeft, win->BorderTop, winw, winh, RECTFMT_ARGB);
 	
 		currentval2=time_delay(&currentval,0);
 		t2=currentval2.tv_micro;
@@ -440,7 +731,7 @@ int main()
 	normalcpu=t2-t1;
 	//iomdnext=0;	
 	
-	struct timespec start3, end3;
+	//struct timespec start3, end3;
 	
     globaltime=0x0;
 	
@@ -448,104 +739,20 @@ int main()
 	{
 		
         struct IntuiMessage *imsg;
-		
-#if 1		
-        WaitPort(win->UserPort);
-	
-        while ((imsg = (struct IntuiMessage *)GetMsg(win->UserPort)) && working == TRUE)
-        {
-		//printf("imsg class 0x%x\n",imsg->Class);
-			running1=1;
-			eventdone=TRUE;
-			mx = imsg->IDCMPWindow->MouseX;
-			my = imsg->IDCMPWindow->MouseY;
+	{
+		ULONG sigs = 0;
 
-            switch (imsg->Class)
-            {
-            case IDCMP_CLOSEWINDOW:
-				running1=0;
-				running2=0;
-			
-				
-                if (pthread_cond_signal(&video_cond))
-                {
-                    printf("Couldn't signal vidc thread\n");
-                }
-		//		pthread_join(video_thread3,NULL);
-                pthread_cancel(video_thread2);
-				pthread_cancel(video_thread3);
-				pthread_cancel(video_thread);
-				
-                working = FALSE;
-				running1=0;
+		while (DoMethod(app,MUIM_Application_NewInput,&sigs) != MUIV_Application_ReturnID_Quit)
+		{
+			if (sigs)
+			{
+				sigs = Wait(sigs | SIGBREAKF_CTRL_C);
+				if (sigs & SIGBREAKF_CTRL_C) break;
+			}
+		}
+	working=FALSE;
+	}	
 
-                break;
-            case IDCMP_RAWKEY:
-            {
-                printf("key: 0x%x\n",imsg->Code);
-                if (imsg->Code & 0x80)
-                {
-                    int ttt = imsg->Code&~(0x80);
-                    keyboard_key_release(keyboard_map_key(ttt));
-                }
-                else
-                {
-                    keyboard_key_press(keyboard_map_key(imsg->Code));
-                }
-                
-                break;
-            }
-            case IDCMP_MOUSEMOVE:
-            {
-              //  printf("mousE\n");
-
-				   POINTER_STATE new_state = get_pointer_state (win, mx, my);
-					if (new_state != pointer_state)
-					{
-					   pointer_state = new_state;
-						if (pointer_state == INSIDE_WINDOW)
-						   hide_pointer (win);
-						else
-                     show_pointer (win);
-                }
-
-                mouse_mouse_move(imsg->MouseX-win->BorderLeft, imsg->MouseY-win->BorderTop);
-                //printf("x: %d y: %d\n",imsg->MouseX,imsg->MouseY);
-
-                break;
-            }
-            case IDCMP_MOUSEBUTTONS:
-                switch (imsg->Code)
-                {
-                case SELECTDOWN:
-                    mouse_mouse_press(1);
-                    break;
-                case SELECTUP:
-                    mouse_mouse_release(1);
-                    break;
-				case MIDDLEDOWN:
-                    mouse_mouse_press(4);
-                    break;
-                case MIDDLEUP:
-                    mouse_mouse_release(4);
-                    break;
-                default:
-                    break;
-                }
-
-            default:
-                break;
-            }
-
-            ReplyMsg((struct Message *)imsg);
-
-            imsg=NULL;
-            
-        }
-		
-		
-		
-#endif
 		if (idecallback) {
 			idecallback -= 10;
 			if (idecallback <= 0) {
@@ -571,21 +778,49 @@ int main()
 
 
     }
+		
+				running1=0;
+				running2=0;
+			
+				
+                if (pthread_cond_signal(&video_cond))
+                {
+                    printf("Couldn't signal vidc thread\n");
+                }
+		//		pthread_join(video_thread3,NULL);
+                pthread_cancel(video_thread2);
+				pthread_cancel(video_thread3);
+				pthread_cancel(video_thread);
+				
+                working = FALSE;
+				running1=0;
+//		set(window,MUIA_Window_Open,FALSE);
+	
+                
 		 iomd_end();
         	//fdc_image_save(discname[0], 0);
         	//fdc_image_save(discname[1], 1);
         	free(vram);
         	free(ram00);
         	free(ram01);
-        	//free(rom);
-        	savecmos();
+        	free(rom);
+        	//savecmos();
         	//config_save(&config);
-			free_pointer ();
-    
-		CloseWindow(win);
+			//free_pointer ();
+    		
+		//CloseWindow(win);
+	printf("after free\n");
+	set(window,MUIA_Window_Open,FALSE);
+	printf("after win close\n");
+	MUI_DisposeObject(app);     /* dispose all objects. */
+	printf("after dispose \n");
+	MUI_DeleteCustomClass(mcc); /* delete the custom class. */
+	printf("after custclas\n");
 	   closevideo();
+	
 		Cleanup_Libs();
 	}
+		printf("before return\n");
 		return(0);
     
 
@@ -603,9 +838,10 @@ vidcthreadrunner3(void *threadid)
 #else
 	struct timeval currentval,currentval2,currentval3;
 #endif
-	iomdtimer=0;
-	tv2.tv_nsec=400000;
-	tv2.tv_sec=0;
+	iomdtimer=2000;
+//	tv2.tv_nsec=400000;
+	//tv2.tv_sec=0;
+	delaytime=0;
     while (working && running1!=0)
     {
 		int exec_count=0;
@@ -620,7 +856,7 @@ vidcthreadrunner3(void *threadid)
 		//for ( exec_count=0;exec_count<=20000;exec_count+=200)
 		//{
 		//GetSysTime(&currentval2);
-			execarm(4000);
+			execarm(800);
 			
 			//drawscr(drawscre);
 #if 1
@@ -688,7 +924,7 @@ vidcthreadrunner3(void *threadid)
 			//printf("delaytime: %d\n",delaytime/2000);
 			gentimerirq();
 			iomdtimer+=2000;
-			drawscre++;
+			//drawscre++;
 			
 		}
 		GetSysTime(&currentval3);
@@ -696,8 +932,8 @@ vidcthreadrunner3(void *threadid)
 		videodelay += (currentval3.tv_micro - currentval2.tv_micro);
 		if (videodelay >= videonext)
 		{
-			//drawscre++;
-			videonext+= 16667;
+			drawscre++;
+			videonext+= 1660;
 
 
 		}

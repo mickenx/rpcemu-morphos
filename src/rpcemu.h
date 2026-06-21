@@ -85,11 +85,11 @@ struct Window *win;
   for Linux port, however use mouse capturing if possible - mousehack has some
   bugs*/
 #define mousehack	1 //(config.mousehackon)
-
+APTR window,MyObj;
 /*This enables abort checking after every LDR/STR/LDM/STM instruction in the
   recompiler. Disabling this makes the recompiler check after every block
   instead - this doesn't appear to break RISC OS, but you never know...*/
-#define ABORTCHECKING
+//#define ABORTCHECKING
 extern void setjittable();
 extern const uint8_t * keyboard_map_key(uint32_t native_scancode);
 extern void hostfs_init(void);

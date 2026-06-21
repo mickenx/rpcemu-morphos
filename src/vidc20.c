@@ -28,6 +28,17 @@
    ARM 7500FE Datasheet - ARM DDI 0077B
    Cirrus Logic CL-PS7500FE Advance Data Book
 */
+//#include "demo.h"
+#include <proto/alib.h>
+#include <proto/exec.h>
+#include <proto/dos.h>
+#include <proto/icon.h>
+#include <proto/graphics.h>
+#include <proto/intuition.h>
+#include <proto/gadtools.h>
+#include <proto/utility.h>
+#include <proto/asl.h>
+#include <proto/muimaster.h>
 #include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -131,13 +142,13 @@ video_image_scanline(int row)
 static void
 video_update(int yl, int yh)
 {
-	
+	winw=_mwidth(MyObj);
 	int lines = yh-yl;
 	int srcstart = yl*winw*4;
 	struct timespec start3, end3;
 	clock_gettime(CLOCK_REALTIME, &start3);
 	
-	WritePixelArray(rofb+srcstart, 0, 0, winw*4, win->RPort, win->BorderLeft, win->BorderTop+yl, winw, lines, RECTFMT_ARGB);
+	WritePixelArray(rofb+srcstart, 0, 0, winw*4,_rp(MyObj)/* win->RPort*/, /*win->BorderLeft*/_mleft(MyObj), /*win->BorderTop*/_mtop(MyObj)+yl, winw, lines, RECTFMT_ARGB);
 
 	clock_gettime(CLOCK_REALTIME, &end3);
 	
@@ -220,8 +231,10 @@ resizedisplay(int x, int y)
 	rofb=(void*)thr.bitmap;
 	winw=x;
 	winh=y;
-	ChangeWindowBox(win, win->LeftEdge, win->TopEdge, win->BorderLeft+win->BorderRight+winw, win->BorderTop+win->BorderBottom+winh);
-	
+	//ChangeWindowBox(win, win->LeftEdge, win->TopEdge, win->BorderLeft+win->BorderRight+winw, win->BorderTop+win->BorderBottom+winh);
+	set(window,MUIA_Window_Height,_mtop(MyObj)*2+winh);
+	set(window,MUIA_Window_Width,(_mleft(MyObj))*2+winw);	
+	printf("resize : %d %d\n",_mleft(MyObj),win->LeftEdge);
 	resetbuffer();
 }
 
